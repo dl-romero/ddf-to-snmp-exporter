@@ -1,6 +1,6 @@
-# DDF to snmp_exporter Converter
+# dce-snmp-modules
 
-Converts [Schneider Electric / APC SNMP Device Definition Files (DDFs)](https://github.com/dl-romero/Schneider-Electric_SNMP-DDF-Downloader) into a `snmp.yml` configuration file ready for use with [prometheus/snmp_exporter](https://github.com/prometheus/snmp_exporter).
+Converts [Schneider Electric / APC SNMP Device Definition Files (DDFs)](https://github.com/dl-romero/Schneider-Electric_SNMP-DDF-Downloader) into a `snmp.yml` configuration file and `module_lookup.json` index for use with [prometheus/snmp_exporter](https://github.com/prometheus/snmp_exporter) in Schneider Electric [Data Center Expert (DCE)](https://www.se.com/us/en/product-subcategory/4140-data-center-expert/) environments.
 
 ## Daily auto-sync service (Linux)
 
@@ -11,6 +11,17 @@ sudo bash install.sh --run-now
 ```
 
 See [Daily sync service](#daily-sync-service) below for full details.
+
+---
+
+## Part of the DCE monitoring stack
+
+| Repo | Role |
+|---|---|
+| **dce-snmp-modules** *(this repo)* | Converts Schneider Electric / APC DDF files into `snmp.yml` and `module_lookup.json` for `snmp_exporter` |
+| **[dce-snmp-sd](https://github.com/dl-romero/dce-snmp-sd)** | Pulls device inventory from DCE servers via SOAP, resolves SNMP modules automatically, serves a live `/targets` endpoint for Prometheus |
+
+The files produced by this repo (`snmp.yml` and `module_lookup.json`) are the expected inputs for `dce-snmp-sd` and `snmp_exporter`. Run the daily sync service here and point `dce-snmp-sd` at the `output/` directory.
 
 ---
 
@@ -32,7 +43,7 @@ Validated against snmp_exporter **v0.30.1** — the binary loads the generated `
 ## Repository structure
 
 ```
-ddf-to-snmp-exporter/
+dce-snmp-modules/
 ├── install.sh                      # one-command Linux service installer
 ├── requirements.txt                # Python dependencies
 ├── scripts/
@@ -570,16 +581,16 @@ scrape_configs:
         target_label: instance
 ```
 
-**Option B — http_sd (live endpoint, Prometheus polls your server):**
+**Option B — http_sd (live endpoint, Prometheus polls a running service):**
 
-Use [snmp-http-sd](https://github.com/dl-romero/snmp-http-sd) — a purpose-built HTTP SD service that manages a persistent device inventory, auto-discovers modules using this repo's `module_lookup.json`, and exposes a live `/targets` endpoint for Prometheus to poll. It handles background hostname refresh, a REST API for adding/removing devices, and Docker support out of the box.
+Use [dce-snmp-sd](https://github.com/dl-romero/dce-snmp-sd) — the companion HTTP SD service built for DCE environments. It connects directly to your DCE servers via SOAP to automatically maintain a device inventory, probes each device over SNMP to resolve the correct module using this repo's `module_lookup.json`, and serves a live `/targets` endpoint that Prometheus polls. It handles background hostname refresh, a REST API for adding/removing devices, and Docker support out of the box.
 
 ```yaml
 # prometheus.yml
 scrape_configs:
   - job_name: snmp_devices
     http_sd_configs:
-      - url: http://snmp-http-sd:8000/targets
+      - url: http://dce-snmp-sd:8000/targets
         refresh_interval: 60s
     metrics_path: /snmp
     relabel_configs:
@@ -603,7 +614,7 @@ Run `discover.py` periodically so new devices get picked up automatically:
 
 ```bash
 # crontab — re-discover every 15 minutes
-*/15 * * * * python3 /opt/ddf-to-snmp-exporter/scripts/discover.py \
+*/15 * * * * python3 /opt/dce-snmp-modules/scripts/discover.py \
     --file /etc/snmp-discovery/hosts.txt \
     --community public \
     --label datacenter=dc1 \
@@ -629,8 +640,8 @@ If the DDF download fails (network issue, API down), the service still regenerat
 
 ```bash
 # Clone this repo onto your Linux server
-git clone https://github.com/dl-romero/ddf-to-snmp-exporter.git
-cd ddf-to-snmp-exporter
+git clone https://github.com/dl-romero/dce-snmp-modules.git
+cd dce-snmp-modules
 
 # Install — downloads DDF downloader repo automatically, creates service user,
 # writes config, installs systemd units, enables daily timer
@@ -721,7 +732,7 @@ sudo systemctl restart snmp-ddf-sync.timer
 DOWNLOADER_DIR=/opt/Schneider-Electric_SNMP-DDF-Downloader
 
 # Root of this repo (scripts/ and output/ subdirectories live here)
-CONVERTER_DIR=/opt/ddf-to-snmp-exporter
+CONVERTER_DIR=/opt/dce-snmp-modules
 
 # Directory containing DDF .xml files
 DDF_DIR=/opt/Schneider-Electric_SNMP-DDF-Downloader/ddf_files
