@@ -29,10 +29,32 @@ Validated against snmp_exporter **v0.30.1** — the binary loads the generated `
 
 ---
 
+## Repository structure
+
+```
+ddf-to-snmp-exporter/
+├── install.sh                      # one-command Linux service installer
+├── requirements.txt                # Python dependencies
+├── scripts/
+│   ├── convert.py                  # DDF XML → snmp.yml
+│   ├── build_lookup.py             # DDF XML → module_lookup.json
+│   ├── discover.py                 # SNMP device probe → http_sd JSON
+│   └── sync.sh                     # daily orchestration (called by systemd)
+├── systemd/
+│   ├── snmp-ddf-sync.service       # oneshot service unit
+│   └── snmp-ddf-sync.timer         # daily timer (03:00, Persistent=true)
+└── output/
+    ├── snmp.yml                    # pre-generated snmp_exporter config (778 modules)
+    └── module_lookup.json          # pre-generated device → module lookup index
+```
+
+---
+
 ## Requirements
 
-- Python 3.11+
+- Python 3.10+
 - `pyyaml`
+- `pysnmp` (required by `scripts/discover.py`)
 
 ```bash
 pip install -r requirements.txt
@@ -611,8 +633,6 @@ Run `discover.py` periodically so new devices get picked up automatically:
     --label datacenter=dc1 \
     --output /etc/prometheus/sd/snmp.json
 ```
-
----
 
 ---
 
