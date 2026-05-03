@@ -142,7 +142,7 @@ else
 # Directory containing ddf_scrape.py (the downloader repo)
 DOWNLOADER_DIR=${DOWNLOADER_DIR}
 
-# Directory containing convert.py, build_lookup.py (this repo)
+# Root of this repo (scripts/ and output/ live beneath it)
 CONVERTER_DIR=${CONVERTER_DIR}
 
 # Directory containing DDF .xml files (relative to DOWNLOADER_DIR)
@@ -161,7 +161,7 @@ chmod 644 "$CONFIG_FILE"
 
 # ── 6. Install sync script ────────────────────────────────────────────────────
 log "Installing sync script to $INSTALL_BIN"
-cp "${CONVERTER_DIR}/sync.sh" "$INSTALL_BIN"
+cp "${CONVERTER_DIR}/scripts/sync.sh" "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
 ok "Installed: $INSTALL_BIN"
 

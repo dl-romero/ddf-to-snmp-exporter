@@ -24,7 +24,7 @@ source "$CONFIG_FILE"
 : "${SNMP_YML:?SNMP_YML not set in $CONFIG_FILE}"
 : "${PYTHON:?PYTHON not set in $CONFIG_FILE}"
 
-LOOKUP_JSON="${CONVERTER_DIR}/module_lookup.json"
+LOOKUP_JSON="${CONVERTER_DIR}/output/module_lookup.json"
 SNMP_YML_TMP="${SNMP_YML}.tmp"
 
 log() { echo "[$(date -Iseconds)] $*"; }
@@ -56,7 +56,7 @@ fi
 
 # ── Step 2: Regenerate snmp.yml ───────────────────────────────────────────────
 log "=== Step 2: Regenerating snmp.yml ==="
-if ! "$PYTHON" "${CONVERTER_DIR}/convert.py" "$DDF_DIR" -o "$SNMP_YML_TMP" 2>&1; then
+if ! "$PYTHON" "${CONVERTER_DIR}/scripts/convert.py" "$DDF_DIR" -o "$SNMP_YML_TMP" 2>&1; then
     rm -f "$SNMP_YML_TMP"
     die "convert.py failed — keeping existing snmp.yml unchanged"
 fi
@@ -82,7 +82,7 @@ log "snmp.yml updated: $SNMP_YML"
 
 # ── Step 3: Regenerate module_lookup.json ────────────────────────────────────
 log "=== Step 3: Regenerating module_lookup.json ==="
-if ! "$PYTHON" "${CONVERTER_DIR}/build_lookup.py" "$DDF_DIR" -o "$LOOKUP_JSON" 2>&1; then
+if ! "$PYTHON" "${CONVERTER_DIR}/scripts/build_lookup.py" "$DDF_DIR" -o "$LOOKUP_JSON" 2>&1; then
     log "WARNING: build_lookup.py failed — module_lookup.json not updated"
 fi
 

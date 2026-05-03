@@ -39,7 +39,7 @@ SYSOID_OID = "1.3.6.1.2.1.1.2.0"
 SYSNAME_OID = "1.3.6.1.2.1.1.5.0"
 SYSDESC_OID = "1.3.6.1.2.1.1.1.0"
 
-DEFAULT_LOOKUP = Path(__file__).parent / "module_lookup.json"
+DEFAULT_LOOKUP = Path(__file__).parent.parent / "output" / "module_lookup.json"
 DEFAULT_COMMUNITY = "public"
 DEFAULT_PORT = 161
 DEFAULT_TIMEOUT = 3    # seconds per device

@@ -43,23 +43,23 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python3 convert.py <ddf_directory> [<ddf_directory2> ...] [-o snmp.yml]
+python3 scripts/convert.py <ddf_directory> [<ddf_directory2> ...] [-o output/snmp.yml]
 ```
 
 ### Examples
 
 ```bash
 # Convert all DDF files from the downloader repo
-python3 convert.py /path/to/Schneider-Electric_SNMP-DDF-Downloader/ddf_files
+python3 scripts/convert.py /path/to/Schneider-Electric_SNMP-DDF-Downloader/ddf_files
 
 # Specify output path
-python3 convert.py ./ddf_files -o /etc/snmp_exporter/snmp.yml
+python3 scripts/convert.py ./ddf_files -o /etc/snmp_exporter/snmp.yml
 
 # Multiple source directories
-python3 convert.py ./ddf_files/provided ./ddf_files/verified ./ddf_files/unverified
+python3 scripts/convert.py ./ddf_files/provided ./ddf_files/verified ./ddf_files/unverified
 
 # Verbose output (shows per-file processing)
-python3 convert.py ./ddf_files -v
+python3 scripts/convert.py ./ddf_files -v
 ```
 
 ---
@@ -85,7 +85,7 @@ brew install snmp_exporter
 
 ```bash
 # Generate the config
-python3 convert.py ./ddf_files -o /etc/snmp_exporter/snmp.yml
+python3 scripts/convert.py ./ddf_files -o /etc/snmp_exporter/snmp.yml
 
 # Run snmp_exporter pointing at the config
 snmp_exporter --config.file=/etc/snmp_exporter/snmp.yml
@@ -342,14 +342,14 @@ Each module corresponds to a DDF file. Use the module name matching your device.
 To find the exact module name for your device, search the `snmp.yml` file:
 
 ```bash
-grep "^[a-z]" snmp.yml | grep -i "ups\|pdu\|cooling"
+grep "^[a-z]" output/snmp.yml | grep -i "ups\|pdu\|cooling"
 ```
 
 Or list all modules:
 ```bash
 python3 -c "
 import yaml
-with open('snmp.yml') as f:
+with open('output/snmp.yml') as f:
     data = yaml.safe_load(f)
 for name, mod in data['modules'].items():
     n = len(mod['metrics'])
@@ -465,10 +465,10 @@ The sysObjectID (`.1.3.6.1.2.1.1.2.0`) is the SNMP equivalent of a USB vendor/pr
 ### Step 1: Build the lookup index
 
 ```bash
-python3 build_lookup.py /path/to/ddf_files -o module_lookup.json
+python3 scripts/build_lookup.py /path/to/ddf_files -o output/module_lookup.json
 ```
 
-This generates `module_lookup.json` containing:
+This generates `output/module_lookup.json` containing:
 - `sysobjid_index` — sysObjectID → module name (exact matches)
 - `sysobjid_prefix_index` — sysObjectID prefix → module name (wildcard matches)
 - `reqoid_index` — vendor OID → candidate modules (fallback probe)
@@ -477,19 +477,19 @@ This generates `module_lookup.json` containing:
 
 ```bash
 # Probe specific hosts
-python3 discover.py 192.168.1.10 192.168.1.20 --community public
+python3 scripts/discover.py 192.168.1.10 192.168.1.20 --community public
 
 # Probe a subnet
-python3 discover.py 10.0.1.0/24 --community public --output /etc/prometheus/sd/snmp.json
+python3 scripts/discover.py 10.0.1.0/24 --community public --output /etc/prometheus/sd/snmp.json
 
 # Read from a file, add environment labels
-python3 discover.py --file hosts.txt --label datacenter=dc1 --label env=prod --output snmp_sd.json
+python3 scripts/discover.py --file hosts.txt --label datacenter=dc1 --label env=prod --output snmp_sd.json
 
 # Custom community string + SNMPv3 auth profile name
-python3 discover.py 10.0.0.0/24 --community secretstring --auth my_v2_auth
+python3 scripts/discover.py 10.0.0.0/24 --community secretstring --auth my_v2_auth
 ```
 
-`discover.py` runs up to 50 concurrent SNMP probes (configurable with `--concurrency`).
+`scripts/discover.py` runs up to 50 concurrent SNMP probes (configurable with `--concurrency`).
 
 ### Output: http_sd JSON
 
@@ -580,7 +580,7 @@ import subprocess, json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 HOSTS_FILE = "/etc/snmp-discovery/hosts.txt"
-DISCOVER_CMD = ["python3", "/opt/ddf-to-snmp-exporter/discover.py",
+DISCOVER_CMD = ["python3", "/opt/ddf-to-snmp-exporter/scripts/discover.py",
                 "--file", HOSTS_FILE, "--community", "public"]
 
 class Handler(BaseHTTPRequestHandler):
@@ -605,7 +605,7 @@ Run `discover.py` periodically so new devices get picked up automatically:
 
 ```bash
 # crontab — re-discover every 15 minutes
-*/15 * * * * python3 /opt/ddf-to-snmp-exporter/discover.py \
+*/15 * * * * python3 /opt/ddf-to-snmp-exporter/scripts/discover.py \
     --file /etc/snmp-discovery/hosts.txt \
     --community public \
     --label datacenter=dc1 \
@@ -724,7 +724,7 @@ sudo systemctl restart snmp-ddf-sync.timer
 # Directory containing ddf_scrape.py (the downloader repo)
 DOWNLOADER_DIR=/opt/Schneider-Electric_SNMP-DDF-Downloader
 
-# Directory containing convert.py, build_lookup.py (this repo)
+# Root of this repo (scripts/ and output/ subdirectories live here)
 CONVERTER_DIR=/opt/ddf-to-snmp-exporter
 
 # Directory containing DDF .xml files
