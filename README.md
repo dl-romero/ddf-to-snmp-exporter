@@ -432,6 +432,176 @@ The default `public_v2` auth uses community `public`. To use a different communi
 
 ---
 
+## Automatic module discovery for http_sd
+
+When building a Prometheus [HTTP service discovery](https://prometheus.io/docs/prometheus/latest/http_sd/) endpoint you need each target labeled with the correct `__param_module`. This repo provides two tools to automate that.
+
+### How module identification works
+
+Every DDF file contains device identification rules alongside its sensor definitions. The `discover.py` tool reads those rules and probes devices to determine their module automatically.
+
+**Resolution order per device:**
+
+| Step | Method | OID queried | Covers |
+|---|---|---|---|
+| 1 | Exact sysObjectID match | `.1.3.6.1.2.1.1.2.0` | 106 unique device fingerprints |
+| 2 | sysObjectID prefix match | `.1.3.6.1.2.1.1.2.0` | Wildcard patterns (e.g. `318.1.3.34.*`) |
+| 3 | Vendor MIB OID-existence probe | Various vendor OIDs | Remaining 733+ modules identified by proprietary MIB presence |
+
+The sysObjectID (`.1.3.6.1.2.1.1.2.0`) is the SNMP equivalent of a USB vendor/product ID — every SNMP agent returns it and it uniquely identifies the device family. For devices not covered by sysObjectID rules, `discover.py` probes for the presence of vendor-specific MIB subtrees (e.g. APC's `.1.3.6.1.4.1.318.1.1.27` tree for InRow cooling units).
+
+### Step 1: Build the lookup index
+
+```bash
+python3 build_lookup.py /path/to/ddf_files -o module_lookup.json
+```
+
+This generates `module_lookup.json` containing:
+- `sysobjid_index` — sysObjectID → module name (exact matches)
+- `sysobjid_prefix_index` — sysObjectID prefix → module name (wildcard matches)
+- `reqoid_index` — vendor OID → candidate modules (fallback probe)
+
+### Step 2: Run discovery against your devices
+
+```bash
+# Probe specific hosts
+python3 discover.py 192.168.1.10 192.168.1.20 --community public
+
+# Probe a subnet
+python3 discover.py 10.0.1.0/24 --community public --output /etc/prometheus/sd/snmp.json
+
+# Read from a file, add environment labels
+python3 discover.py --file hosts.txt --label datacenter=dc1 --label env=prod --output snmp_sd.json
+
+# Custom community string + SNMPv3 auth profile name
+python3 discover.py 10.0.0.0/24 --community secretstring --auth my_v2_auth
+```
+
+`discover.py` runs up to 50 concurrent SNMP probes (configurable with `--concurrency`).
+
+### Output: http_sd JSON
+
+```json
+[
+  {
+    "targets": ["10.0.0.11:161"],
+    "labels": {
+      "__param_module": "apc_acrd2g",
+      "__param_auth": "public_v2",
+      "sysobjid": "1.3.6.1.4.1.318.1.3.14.15",
+      "sysname": "ACRD2G-Row01",
+      "datacenter": "dc1"
+    }
+  },
+  {
+    "targets": ["10.0.0.20:161"],
+    "labels": {
+      "__param_module": "apcsmartups",
+      "__param_auth": "public_v2",
+      "sysobjid": "1.3.6.1.4.1.318.1.3.2.6",
+      "sysname": "UPS-Rack-A01",
+      "datacenter": "dc1"
+    }
+  }
+]
+```
+
+### Step 3: Point Prometheus at the http_sd file
+
+**Option A — file_sd (static file, refresh on re-run):**
+
+Run `discover.py` on a schedule (cron, systemd timer) and have Prometheus watch the output file:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: snmp_devices
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/sd/snmp.json
+        refresh_interval: 60s
+    metrics_path: /snmp
+    relabel_configs:
+      # Pass device IP as SNMP target
+      - source_labels: [__address__]
+        target_label: __param_target
+      # Use the module label discover.py set
+      - source_labels: [__param_module]
+        target_label: __param_module
+      # Route through snmp_exporter
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+      # Keep original IP as instance label
+      - source_labels: [__param_target]
+        target_label: instance
+```
+
+**Option B — http_sd (live endpoint, Prometheus polls your server):**
+
+Serve the `discover.py` output from a small HTTP endpoint that Prometheus can poll directly:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: snmp_devices
+    http_sd_configs:
+      - url: http://your-discovery-service:8080/snmp-targets
+        refresh_interval: 5m
+    metrics_path: /snmp
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_module]
+        target_label: __param_module
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+      - source_labels: [__param_target]
+        target_label: instance
+```
+
+A minimal HTTP SD server using `discover.py`:
+
+```python
+#!/usr/bin/env python3
+"""Minimal HTTP SD server wrapping discover.py output."""
+import subprocess, json
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+HOSTS_FILE = "/etc/snmp-discovery/hosts.txt"
+DISCOVER_CMD = ["python3", "/opt/ddf-to-snmp-exporter/discover.py",
+                "--file", HOSTS_FILE, "--community", "public"]
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/snmp-targets":
+            result = subprocess.run(DISCOVER_CMD, capture_output=True, text=True)
+            body = result.stdout.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+```
+
+### Keeping discovery fresh
+
+Run `discover.py` periodically so new devices get picked up automatically:
+
+```bash
+# crontab — re-discover every 15 minutes
+*/15 * * * * python3 /opt/ddf-to-snmp-exporter/discover.py \
+    --file /etc/snmp-discovery/hosts.txt \
+    --community public \
+    --label datacenter=dc1 \
+    --output /etc/prometheus/sd/snmp.json
+```
+
+---
+
 ## How it works (technical)
 
 DDF XML elements are mapped as follows:
