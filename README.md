@@ -572,53 +572,29 @@ scrape_configs:
 
 **Option B — http_sd (live endpoint, Prometheus polls your server):**
 
-Serve the `discover.py` output from a small HTTP endpoint that Prometheus can poll directly:
+Use [snmp-http-sd](https://github.com/dl-romero/snmp-http-sd) — a purpose-built HTTP SD service that manages a persistent device inventory, auto-discovers modules using this repo's `module_lookup.json`, and exposes a live `/targets` endpoint for Prometheus to poll. It handles background hostname refresh, a REST API for adding/removing devices, and Docker support out of the box.
 
 ```yaml
 # prometheus.yml
 scrape_configs:
   - job_name: snmp_devices
     http_sd_configs:
-      - url: http://your-discovery-service:8080/snmp-targets
-        refresh_interval: 5m
+      - url: http://snmp-http-sd:8000/targets
+        refresh_interval: 60s
     metrics_path: /snmp
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
       - source_labels: [__param_module]
         target_label: __param_module
+      - source_labels: [__param_auth]
+        target_label: __param_auth
       - target_label: __address__
         replacement: snmp-exporter:9116
       - source_labels: [__param_target]
         target_label: instance
-```
-
-A minimal HTTP SD server using `discover.py`:
-
-```python
-#!/usr/bin/env python3
-"""Minimal HTTP SD server wrapping discover.py output."""
-import subprocess, json
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-HOSTS_FILE = "/etc/snmp-discovery/hosts.txt"
-DISCOVER_CMD = ["python3", "/opt/ddf-to-snmp-exporter/scripts/discover.py",
-                "--file", HOSTS_FILE, "--community", "public"]
-
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == "/snmp-targets":
-            result = subprocess.run(DISCOVER_CMD, capture_output=True, text=True)
-            body = result.stdout.encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+      - source_labels: [hostname]
+        target_label: hostname
 ```
 
 ### Keeping discovery fresh
