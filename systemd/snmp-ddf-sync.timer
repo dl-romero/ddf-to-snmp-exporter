@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily SNMP DDF sync timer
+Documentation=https://github.com/dl-romero/ddf-to-snmp-exporter
+
+[Timer]
+# Run at 03:00 every day
+OnCalendar=*-*-* 03:00:00
+# If the system was off at 03:00, run as soon as it comes back online
+Persistent=true
+# Spread runs by up to 10 minutes to avoid thundering-herd on shared infrastructure
+RandomizedDelaySec=600
+# Trigger unit with same base name (.service)
+Unit=snmp-ddf-sync.service
+
+[Install]
+WantedBy=timers.target

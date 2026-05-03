@@ -2,6 +2,18 @@
 
 Converts [Schneider Electric / APC SNMP Device Definition Files (DDFs)](https://github.com/dl-romero/Schneider-Electric_SNMP-DDF-Downloader) into a `snmp.yml` configuration file ready for use with [prometheus/snmp_exporter](https://github.com/prometheus/snmp_exporter).
 
+## Daily auto-sync service (Linux)
+
+Install a systemd service that pulls new DDFs every night and keeps `snmp.yml` current automatically:
+
+```bash
+sudo bash install.sh --run-now
+```
+
+See [Daily sync service](#daily-sync-service) below for full details.
+
+---
+
 ## What it does
 
 Each DDF file describes the SNMP OIDs, sensor types, scaling factors, and enumeration mappings for a specific device (UPS, PDU, cooling unit, etc.). This tool parses those XML definitions and generates a `snmp.yml` with:
@@ -599,6 +611,133 @@ Run `discover.py` periodically so new devices get picked up automatically:
     --label datacenter=dc1 \
     --output /etc/prometheus/sd/snmp.json
 ```
+
+---
+
+---
+
+## Daily sync service
+
+### What it does
+
+The `snmp-ddf-sync` systemd service runs every day at 03:00. Each run:
+
+1. Pulls any new or updated DDF files from Schneider Electric via `ddf_scrape.py`
+2. Regenerates `snmp.yml` from all DDFs (writes to a temp file first, validates it, then atomically replaces)
+3. Regenerates `module_lookup.json` for the discovery tool
+4. Sends `SIGHUP` to `snmp_exporter` so it reloads config without restarting
+
+If the DDF download fails (network issue, API down), the service still regenerates `snmp.yml` from the existing local DDFs and reloads `snmp_exporter`. The next night's run will retry the download.
+
+### Install
+
+```bash
+# Clone this repo onto your Linux server
+git clone https://github.com/dl-romero/ddf-to-snmp-exporter.git
+cd ddf-to-snmp-exporter
+
+# Install — downloads DDF downloader repo automatically, creates service user,
+# writes config, installs systemd units, enables daily timer
+sudo bash install.sh
+
+# Or run the first sync immediately after installing
+sudo bash install.sh --run-now
+```
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--downloader-dir DIR` | `/opt/Schneider-Electric_SNMP-DDF-Downloader` | Where to clone/find the DDF downloader repo |
+| `--snmp-yml PATH` | `/etc/snmp_exporter/snmp.yml` | Where snmp_exporter reads its config |
+| `--python PATH` | `python3` | Python interpreter to use |
+| `--run-now` | — | Run an immediate sync after installing |
+
+**Example — custom paths:**
+```bash
+sudo bash install.sh \
+  --downloader-dir /data/ddfs \
+  --snmp-yml /opt/snmp_exporter/snmp.yml \
+  --run-now
+```
+
+### What gets installed
+
+```
+/etc/snmp-ddf-sync/config          # editable config (paths, python location)
+/usr/local/bin/snmp-ddf-sync       # sync script
+/etc/systemd/system/snmp-ddf-sync.service
+/etc/systemd/system/snmp-ddf-sync.timer
+/etc/sudoers.d/snmp-ddf-sync       # allows service user to HUP snmp_exporter
+```
+
+A dedicated `snmp-ddf-sync` system user is created with ownership of the DDF and converter directories.
+
+### Managing the service
+
+```bash
+# Run a sync right now (doesn't wait for 03:00)
+sudo systemctl start snmp-ddf-sync
+
+# Watch live log output
+sudo journalctl -u snmp-ddf-sync -f
+
+# See last run result
+sudo journalctl -u snmp-ddf-sync -n 50 --no-pager
+
+# Check when the next run is scheduled
+sudo systemctl list-timers snmp-ddf-sync
+
+# Disable the daily timer (without uninstalling)
+sudo systemctl disable --now snmp-ddf-sync.timer
+
+# Re-enable it
+sudo systemctl enable --now snmp-ddf-sync.timer
+```
+
+### Changing the schedule
+
+Edit `/etc/systemd/system/snmp-ddf-sync.timer` and update `OnCalendar=`:
+
+```ini
+# Every day at 03:00 (default)
+OnCalendar=*-*-* 03:00:00
+
+# Every 12 hours
+OnCalendar=*-*-* 03,15:00:00
+
+# Every Sunday at 01:00
+OnCalendar=Sun *-*-* 01:00:00
+```
+
+Then reload:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart snmp-ddf-sync.timer
+```
+
+### Config file
+
+`/etc/snmp-ddf-sync/config` is a shell-sourced file you can edit directly:
+
+```bash
+# Directory containing ddf_scrape.py (the downloader repo)
+DOWNLOADER_DIR=/opt/Schneider-Electric_SNMP-DDF-Downloader
+
+# Directory containing convert.py, build_lookup.py (this repo)
+CONVERTER_DIR=/opt/ddf-to-snmp-exporter
+
+# Directory containing DDF .xml files
+DDF_DIR=/opt/Schneider-Electric_SNMP-DDF-Downloader/ddf_files
+
+# Full path where snmp_exporter reads its snmp.yml
+SNMP_YML=/etc/snmp_exporter/snmp.yml
+
+# Python interpreter
+PYTHON=/usr/bin/python3
+```
+
+After editing, the next timer run picks up the changes automatically (no daemon-reload needed since the script reads the config at runtime).
 
 ---
 

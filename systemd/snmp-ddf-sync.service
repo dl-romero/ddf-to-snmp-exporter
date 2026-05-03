@@ -1,0 +1,34 @@
+[Unit]
+Description=SNMP DDF Sync — download DDFs and regenerate snmp_exporter config
+Documentation=https://github.com/dl-romero/ddf-to-snmp-exporter
+# Run after network is up so the DDF download can reach Schneider's API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Config file path — override via environment if needed
+Environment=SNMP_DDF_CONFIG=/etc/snmp-ddf-sync/config
+
+ExecStart=/usr/local/bin/snmp-ddf-sync
+
+# Allow the service to send SIGHUP to snmp_exporter
+# If snmp_exporter runs as a different user, grant this via sudo or set
+# snmp_exporter's service to allow HUP from this user
+User=snmp-ddf-sync
+Group=snmp-ddf-sync
+
+# Give it enough time to download all DDFs over a slow link
+TimeoutStartSec=1800
+
+# Keep logs from recent runs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=snmp-ddf-sync
+
+# Exit code 2 = partial success (download failed, config still updated)
+# Treat it as success so the timer keeps running
+SuccessExitStatus=0 2
+
+[Install]
+WantedBy=multi-user.target
